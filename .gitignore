@@ -1,0 +1,5 @@
+.DS_Store
+sample_audio/
+sparc_models/
+*.npy
+*.gif
