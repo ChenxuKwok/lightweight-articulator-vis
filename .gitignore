@@ -3,3 +3,5 @@ sample_audio/
 sparc_models/
 *.npy
 *.gif
+temp_*
+*.log

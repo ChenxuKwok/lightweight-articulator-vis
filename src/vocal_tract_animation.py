@@ -215,6 +215,7 @@ def animate_vocal_tract(
     show_axes: bool = False,
     xlim: tuple[float, float] = (-3.0, 3.0),
     ylim: tuple[float, float] = (-3.0, 3.0),
+    rig_scale: float = 100.0,   # divide raw rig coords by this value
 ) -> None:
     required = {"UL", "LL", "LI", "TT", "TB", "TD"}
     if not required.issubset(traj):
@@ -234,7 +235,18 @@ def animate_vocal_tract(
     else:
         ax.axis("off")
 
-    # Outline logic removed
+    def _convert_rig(raw_rig: RigDict) -> RigDict:
+        if "root" not in raw_rig:
+            return raw_rig
+        origin = raw_rig["root"]
+        conv = {}
+        for k, v in raw_rig.items():
+            if k == "root":
+                continue
+            conv[k] = (v - origin) / rig_scale
+        return conv
+
+    custom_rig = _convert_rig(custom_rig or {})
 
     sensor_scatter = ax.scatter([], [], s=20, c="k", marker="x", alpha=0.6)
 
@@ -270,7 +282,7 @@ def animate_vocal_tract(
     # Compute static palate surface once.
     raw0 = {k: v[0] for k, v in traj.items()}
     R0, t0, s0 = np.eye(2), np.zeros(2), 1.0
-    rig0 = custom_rig or {}
+    rig0 = custom_rig
     # --- animation driver -----------------------------------------------------
 
     def _update(frame: int):
@@ -285,7 +297,7 @@ def animate_vocal_tract(
             for n, xy in zip(("UL", "LL", "LI", "TT", "TB", "TD"), sensor_xy):
                 _label(n, xy)
 
-        rig = custom_rig or {}
+        rig = custom_rig
 
         # outline disabled
 
@@ -306,7 +318,7 @@ def animate_vocal_tract(
             for n, xy in zip(("UL","LL","LI","TT","TB","TD"), sensor_xy):
                 _label(n, xy)
 
-        rig_init = custom_rig or {}
+        rig_init = custom_rig
         if show_labels:
             for n, xy in rig_init.items():
                 _label(str(n), xy)

@@ -24,6 +24,27 @@ def show_ema_frame(traj: dict, frame: int):
     plt.tight_layout()
     plt.show()
 
+def show_avg_frame(traj: dict):
+    keys = ["UL", "LL", "LI", "TT", "TB", "TD"]
+    colours = dict(UL="crimson", LL="gold", LI="grey",
+                   TT="limegreen", TB="orchid", TD="steelblue")
+
+    plt.figure(figsize=(4,4))
+    plt.xlim(-0.5, 0.5)
+    plt.ylim(-0.5, 0.5)
+    for k in keys:
+        x, y = np.mean(traj[k], axis=0)
+        plt.scatter(x, y, color=colours[k], s=40, zorder=3)
+        plt.text(x+0.05, y+0.05, f"{k} ({x:.2f},{y:.2f})",
+                 ha="left", va="bottom", fontsize=8)
+
+    plt.title("Average EMA sensors position")
+    plt.gca().set_aspect("equal")
+    plt.gca().invert_yaxis()      # common EMA convention
+    plt.grid(True, linestyle="--", alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
 def live_view(traj, fps=25, save_gif=None):
     colours = dict(UL="crimson", LL="gold", LI="grey",
                    TT="limegreen", TB="orchid", TD="steelblue")
