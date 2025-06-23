@@ -64,7 +64,7 @@ if __name__ == "__main__":
     ema = np.load('sample1_ema.npy')  # Load EMA data (T, 12)
     T = ema.shape[0]
     # EMA channel_label = ['TDX','TDY','TBX','TBY','TTX','TTY','LIX','LIY','ULX','ULY','LLX','LLY']
-    channels = ['TD', 'TB', 'TT', 'LI', 'UL', 'LL']   # order below matches doc
+    channels = ['TD', 'TB', 'TT', 'LI', 'UL', 'LL']
     idx = {                     # column indices for each articulator
         'TD': (0, 1),           # Tongue Dorsum
         'TB': (2, 3),           # Tongue Blade

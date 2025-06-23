@@ -7,7 +7,7 @@ import matplotlib
 import logging
 
 # ---- Custom imports ----
-from src.vocal_tract_animation import animate_vocal_tract
+from src.vocal_tract_animation import animate_vocal_tract, load_rig_csv
 from src.plot import show_ema_frame, live_view
 from src.init import process
 import time
@@ -48,7 +48,7 @@ T = ema.shape[0]
 traj = process(ema)
 
 # show_ema_frame(traj, 0)
-live_view(traj, fps=10, save_gif="sample1.gif")
-
-# animate_vocal_tract(traj_anim, fps=25, save_gif="sample1.gif")
+# live_view(traj, fps=10, save_gif="sample1.gif")
+rig = load_rig_csv('rigs/rig_points.csv')
+animate_vocal_tract(traj, fps=25, save_gif="sample-test.gif", custom_rig=rig, show_labels=True, show_axes=True)
 

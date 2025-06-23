@@ -7,7 +7,16 @@ from matplotlib import animation
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch
 import bezier
+import logging
 
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
+
+# Colour cycle for rig points
+import itertools
+_cmap_cycle = itertools.cycle(plt.cm.tab20.colors)
+SENSOR_KEYS = {"UL", "LL", "LI", "TT", "TB", "TD"}
 
 def cubic_bezier(p0, p1, p2, p3, n: int = 32) -> np.ndarray:
     nodes = np.asfortranarray([
@@ -21,71 +30,64 @@ def cubic_bezier(p0, p1, p2, p3, n: int = 32) -> np.ndarray:
 
 ArtDict = Dict[str, np.ndarray]
 
+RigDict = Dict[str, np.ndarray]
+
+def load_rig_csv(csv_path: str) -> RigDict:
+    """
+    Read a simple rig CSV with columns: name,x,y
+    Returns dict[name] = np.ndarray([x,y]).
+    """
+    import csv
+    rig = {}
+    with open(csv_path, newline="") as fh:
+        reader = csv.reader(fh)
+        for row in reader:
+            if not row or row[0].strip().lower() in ("name", "#", "//"):
+                # skip header or comment lines
+                continue
+            name, x, y = row[:3]
+            rig[name.strip()] = np.array([float(x), float(y)])
+    return rig
+
 # Helper to compute average lip distance
-def _mean_lip_distance(traj: Dict[str, np.ndarray]) -> float:
-    """Return the average UL–LL Euclidean distance (cm) across all frames."""
-    ul, ll = traj["UL"], traj["LL"]
-    return float(np.mean(np.linalg.norm(ll - ul, axis=1)))
+# def _mean_lip_distance(traj: Dict[str, np.ndarray]) -> float:
+#     """Return the average UL–LL Euclidean distance (cm) across all frames."""
+#     ul, ll = traj["UL"], traj["LL"]
+#     return float(np.mean(np.linalg.norm(ll - ul, axis=1)))
 
 ###############################################################################
 # Coordinate normalisation
 ###############################################################################
 
-def _affine_from_frame(art: ArtDict, target_lip_dist: float = 1.6):
-    """
-    Compute (R, t, s) so that:
-
-      * the lower incisor (LI) maps to (0, 0)
-      * the UL->LL vector becomes vertical (positive y down)
-      * the UL-LL distance is `target_lip_dist`
-
-    Returns rotation matrix R (2x2), translation vector t (2,), scale s.
-    """
-    ul, ll, li = art["UL"], art["LL"], art["LI"]
-
-    # 1) translate so LI is the origin  (bite‑plane reference point)
-    t = li
-
-    # 2) rotate so the lip‑line (UL→LL) becomes vertical (positive‑y down)
-    v   = ll - ul
-    phi = np.arctan2(v[1], v[0])        # current angle of UL→LL
-    # Rotate so UL→LL ends up pointing **downwards** (−y) in the new frame.
-    theta = -np.pi/2 - phi
-    R = np.array([[np.cos(theta), -np.sin(theta)],
-                  [np.sin(theta),  np.cos(theta)]])
-
-    # 3) scale so the UL–LL distance equals target_lip_dist (≈16 mm default)
-    d = np.linalg.norm(v)
-    s = target_lip_dist / (d + 1e-9)
-
+def _affine_from_frame(*args, **kwargs):
+    """ (disabled) returns identity transform """
+    R = np.eye(2)
+    t = np.zeros(2)
+    s = 1.0
     return R, t, s
 
 def _apply_affine(xy: np.ndarray, R: np.ndarray, t: np.ndarray, s: float):
-    """Return (xy – t) rotated by R then scaled by s."""
-    return (R @ (xy - t).T).T * s
+    """ (disabled) passthrough – no transform """
+    return xy
 
 
 def _rig_points(art: ArtDict) -> Dict[str, np.ndarray]:
-    """Compute hidden rig anchors for one frame (heuristic rules)."""
-    rig: Dict[str, np.ndarray] = {}
+    """
+    No automatic rigging.  We rely entirely on the hand‑labelled
+    points 1‑13 loaded from CSV.
+    """
+    return {}
 
-    # Average TB & TT for a smooth mid‑tongue anchor
-    rig["mid_tongue"] = 0.5 * (art["TB"] + art["TT"])
-
-    # Tongue root: TD minus 4 mm in y
-    rig["root"] = art["TD"] + np.array([0.0, -0.4])
-
-    # Palate mid‑point (static reference after normalisation)
-    rig["palate_mid"] = np.array([0.0, 2.0])
-
-    # Pharynx wall behind the root
-    rig["pharynx_wall"] = rig["root"] + np.array([-1.2, 0.0])
-
-    # Lip corners: ±6 mm from UL in x
-    lip_half = 0.6
-    rig["lip_left"]  = art["UL"] + np.array([-lip_half, 0.0])
-    rig["lip_right"] = art["UL"] + np.array([ lip_half, 0.0])
-    return rig
+# Allow numeric rig ids (“1”..“13”) for hand‑labelled anchors.
+def _get_point(name: str,
+               art: ArtDict,
+               rig: RigDict) -> np.ndarray:
+    """Return the xy for *name* from either sensors or rig dict."""
+    if name in art:
+        return art[name]
+    if name in rig:
+        return rig[name]
+    raise KeyError(f"Point '{name}' not found in rig or sensors.")
 
 
 def _catmull_rom(P: np.ndarray, n: int = 60) -> np.ndarray:
@@ -113,69 +115,25 @@ def _catmull_rom(P: np.ndarray, n: int = 60) -> np.ndarray:
     return np.vstack(curve)
 
 
-def _translate_outline(base_outline: np.ndarray,
-                       rig: Dict[str, np.ndarray],
-                       gap_y: float = 0.3,
-                       align_x: bool = True) -> np.ndarray:
+def _tongue_surface(art: ArtDict, rig: RigDict) -> np.ndarray:
     """
-    Affine‑translate the static outline so that:
-
-    • the hard‑palate node (index 3) sits `gap_y` cm above the tongue root, and
-    • IF `align_x` is True, the front lip point (index 6) aligns with UL.
-
-    This keeps the outline vertically and horizontally centred on the
-    current speaker position after normalisation.
+    Draw Catmull‑Rom through:
+      1 – TD – TB – TT – 2 – 3 – 4 – 5 – 6 – LL
+    Numeric anchors (1‑6) must exist in `rig`.
     """
-    # vertical shift
-    dy = (rig["root"][1] + gap_y) - base_outline[3, 1]
-
-    # horizontal shift (bring mouth opening to UL)
-    dx = 0.0
-    if align_x:
-        dx = (0.5 * (rig["lip_left"][0] + rig["lip_right"][0])) - base_outline[6, 0]
-
-    return base_outline + np.array([dx, dy])
+    order = ["1", "TD", "TB", "TT", "2", "3", "4", "5", "6", "LL"]
+    pts = np.vstack([_get_point(n, art, rig) for n in order])
+    return _catmull_rom(pts, n=80)
 
 
-def _tongue_surface(art: ArtDict, rig: Dict[str, np.ndarray]) -> np.ndarray:
-    # Measured tongue points from back to front
-    pts = np.vstack([art["TD"], art["TB"], art["TT"]])
-    return _catmull_rom(pts, n=60)
-
-
-def _palate_surface(rig: Dict[str, np.ndarray]) -> np.ndarray:
-    pm = rig["palate_mid"]
-    p0 = pm + np.array([-0.8, 0.0])
-    p1 = pm + np.array([-0.4, 0.4])
-    p2 = pm + np.array([0.4, 0.4])
-    p3 = pm + np.array([0.8, 0.0])
-    return cubic_bezier(p0, p1, p2, p3, n=60)
-
-
-def _lips_outer(art: ArtDict) -> np.ndarray:
-    ul, ll = art["UL"], art["LL"]
-    centre = 0.5 * (ul + ll)
-    v = ll - ul
-    d = np.linalg.norm(v)
-
-    # If UL == LL the curve collapses – bail out
-    if d < 1e-4:
-        return np.vstack([ul, ll])
-
-    # outward (perpendicular) unit vector – pick the side facing away from tongue tip
-    perp = np.array([-v[1], v[0]])
-    perp /= np.linalg.norm(perp)
-    # choose direction so the normal points away from the tongue centre
-    if np.dot(perp, art["TT"] - centre) > 0:
-        perp = -perp
-
-    # bulge is 25 % of lip gap, minimum 4 mm so a closed mouth is still visible
-    bulge = max(0.25 * d, 0.04)
-
-    p0, p3 = ul, ll
-    p1 = centre + perp * bulge
-    p2 = centre - perp * bulge
-    return cubic_bezier(p0, p1, p2, p3, n=50)
+def _upper_jaw_surface(art: ArtDict, rig: RigDict) -> np.ndarray:
+    """
+    Smooth Catmull‑Rom through:
+      7 – UL – 8 – 9 – 10 – 11 – 12 – 13
+    """
+    order = ["7", "UL", "8", "9", "10", "11", "12", "13"]
+    pts = np.vstack([_get_point(n, art, rig) for n in order])
+    return _catmull_rom(pts, n=80)
 
 
 def calibrate_outline(traj: Dict[str, np.ndarray],
@@ -238,6 +196,13 @@ def _to_path(points: np.ndarray) -> Path:
 ###############################################################################
 
 
+# Helper to merge rigs
+def _merge_rigs(auto_rig: RigDict, custom: Optional[RigDict]) -> RigDict:
+    """
+    With auto rig disabled, just return the custom rig (if any).
+    """
+    return custom or {}
+
 def animate_vocal_tract(
     traj: Dict[str, np.ndarray],
     *,
@@ -245,81 +210,111 @@ def animate_vocal_tract(
     save_gif: Optional[str] = None,
     save_mp4: Optional[str] = None,
     custom_outline: Optional[np.ndarray] = None,
+    custom_rig: Optional[RigDict] = None,
+    show_labels: bool = False,
+    show_axes: bool = False,
+    xlim: tuple[float, float] = (-3.0, 3.0),
+    ylim: tuple[float, float] = (-3.0, 3.0),
 ) -> None:
     required = {"UL", "LL", "LI", "TT", "TB", "TD"}
     if not required.issubset(traj):
         raise ValueError(f"traj missing keys: {required - traj.keys()}")
 
-    # Per‑speaker lip distance for better scaling
-    lip_dist = _mean_lip_distance(traj)
-    if lip_dist < 0.5:      # improbable => fallback to 1.6 cm
-        lip_dist = 1.6
-
     T = next(iter(traj.values())).shape[0]
 
-    fig, ax = plt.subplots(figsize=(4, 4))
-    ax.set_xlim(-5, 5)
-    ax.set_ylim(-5, 5)
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
     ax.set_aspect("equal")
-    ax.axis("off")
 
-    # Speaker‑specific outline
-    outline = (custom_outline
-               if custom_outline is not None
-               else calibrate_outline(traj, target_lip_dist=lip_dist))
+    if show_axes:
+        # ax.set_xlabel("cm")
+        # ax.set_ylabel("cm")
+        ax.grid(ls="--", alpha=0.3)
+    else:
+        ax.axis("off")
 
-    outline_line, = ax.plot(outline[:,0], outline[:,1], color='k', lw=1.5, alpha=0.4)
+    # Outline logic removed
 
     sensor_scatter = ax.scatter([], [], s=20, c="k", marker="x", alpha=0.6)
 
+    # Label texts (created lazily when show_labels is True)
+    text_artists: Dict[str, plt.Text] = {}
+    rig_scatters: Dict[str, plt.Line2D] = {}
+
+    def _label(name: str, xy: np.ndarray):
+        """Create (once) or move a small text label and scatter marker."""
+        if not show_labels:
+            return
+        if name not in text_artists:
+            text_artists[name] = ax.text(
+                xy[0] + 0.1, xy[1] + 0.1, name,
+                fontsize=7, ha="left", va="bottom", color="black"
+            )
+        else:
+            text_artists[name].set_position((xy[0] + 0.1, xy[1] + 0.1))
+        if show_labels and name not in rig_scatters:
+            rig_scatters[name], = ax.plot(
+                [], [], marker="o", markersize=5,
+                color=next(_cmap_cycle), linestyle="None", zorder=4
+            )
+        if show_labels:
+            rig_scatters[name].set_data([xy[0]], [xy[1]])
+
     # Empty PathPatches for dynamic surfaces.
-    tongue_patch = PathPatch(Path([[0, 0]]), fill=False, lw=4, color="tab:red")
-    lip_patch = PathPatch(Path([[0, 0]]), fill=False, lw=4, color="tab:blue")
-    palate_patch = PathPatch(
-        Path([[0, 0]]), fill=False, lw=2, color="k", alpha=0.5
-    )
-    ax.add_patch(palate_patch)
+    tongue_patch = PathPatch(Path([[0, 0]]), fill=False, lw=3, color="tab:red")
+    upper_patch = PathPatch(Path([[0, 0]]), fill=False, lw=3, color="tab:blue")
     ax.add_patch(tongue_patch)
-    ax.add_patch(lip_patch)
+    ax.add_patch(upper_patch)
 
     # Compute static palate surface once.
     raw0 = {k: v[0] for k, v in traj.items()}
-    R0, t0, s0 = _affine_from_frame(raw0, target_lip_dist=lip_dist)
-    rig0 = _rig_points({k: _apply_affine(raw0[k], R0, t0, s0) for k in raw0})
-    palate_patch.set_path(_to_path(_palate_surface(rig0)))
-
+    R0, t0, s0 = np.eye(2), np.zeros(2), 1.0
+    rig0 = custom_rig or {}
     # --- animation driver -----------------------------------------------------
 
     def _update(frame: int):
         raw = {k: v[frame] for k, v in traj.items()}
-        art = {k: _apply_affine(raw[k], R0, t0, s0) for k in raw}
+        art = raw
 
         sensor_xy = np.vstack([art[k] for k in ("UL","LL","LI","TT","TB","TD")])
         sensor_scatter.set_offsets(sensor_xy)
 
-        rig = _rig_points(art)
+        # move sensor labels each frame
+        if show_labels:
+            for n, xy in zip(("UL", "LL", "LI", "TT", "TB", "TD"), sensor_xy):
+                _label(n, xy)
 
-        outline_frame = _translate_outline(outline, rig)
-        outline_path  = _apply_affine(outline_frame, R0, t0, s0)
-        outline_line.set_data(outline_path[:, 0], outline_path[:, 1])
+        rig = custom_rig or {}
+
+        # outline disabled
 
         tongue_patch.set_path(_to_path(_tongue_surface(art, rig)))
-        lip_patch.set_path(_to_path(_lips_outer(art)))
-        return tongue_patch, lip_patch, palate_patch, outline_line, sensor_scatter
+        upper_patch.set_path(_to_path(_upper_jaw_surface(art, rig)))
+
+        return tuple([tongue_patch, upper_patch, sensor_scatter] +
+                     list(text_artists.values()) +
+                     list(rig_scatters.values()))
 
     def _init():
         # static palette and outline for first frame
         raw = {k: v[0] for k, v in traj.items()}
-        art = {k: _apply_affine(raw[k], R0, t0, s0) for k in raw}
+        art = raw
         sensor_xy = np.vstack([art[k] for k in ("UL","LL","LI","TT","TB","TD")])
         sensor_scatter.set_offsets(sensor_xy)
+        if show_labels:
+            for n, xy in zip(("UL","LL","LI","TT","TB","TD"), sensor_xy):
+                _label(n, xy)
 
-        rig_init = _rig_points(art)
-        outline_frame = _translate_outline(outline, rig_init)
-        outline_path  = _apply_affine(outline_frame, R0, t0, s0)
-        outline_line.set_data(outline_path[:, 0], outline_path[:, 1])
-        palate_patch.set_path(_to_path(_palate_surface(rig0)))
-        return tongue_patch, lip_patch, palate_patch, outline_line, sensor_scatter
+        rig_init = custom_rig or {}
+        if show_labels:
+            for n, xy in rig_init.items():
+                _label(str(n), xy)
+        tongue_patch.set_path(_to_path(_tongue_surface(art, rig_init)))
+        upper_patch.set_path(_to_path(_upper_jaw_surface(art, rig_init)))
+        return tuple([tongue_patch, upper_patch, sensor_scatter] +
+                     list(text_artists.values()) +
+                     list(rig_scatters.values()))
 
     ani = animation.FuncAnimation(
         fig, _update, frames=T, init_func=_init,
@@ -331,19 +326,6 @@ def animate_vocal_tract(
     if save_mp4:
         ani.save(save_mp4, writer=animation.FFMpegWriter(fps=fps))
 
+    logging.info(f"Animation created: {save_gif or save_mp4}")
+
     plt.show()
-
-
-if __name__ == "__main__":
-    T = 150
-    th = np.linspace(0, 2 * np.pi, T)
-    demo_traj = {
-        "UL": np.c_[np.zeros(T),  0.35*np.ones(T)],
-        "LL": np.c_[np.zeros(T), -0.05+0.1*np.sin(th)],
-        "LI": np.c_[np.zeros(T), -1.3+0.1*np.sin(th)],
-        "TT": np.c_[ 0.5*np.cos(th), -0.1+0.2*np.sin(th)],
-        "TB": np.c_[ 0.1*np.cos(th), -0.25+0.15*np.sin(th)],
-        "TD": np.c_[ -0.8*np.ones(T), -0.3+0.12*np.sin(th)],
-    }
-
-    animate_vocal_tract(demo_traj, fps=30)
