@@ -12,4 +12,13 @@ pip install -r requirements.txt
 source ./scripts/loadmodel.sh
 ```
 
+## Utils
+
+```bash
+python utils/picture.py
+```
+
+to get each point's coordinates in the image.
+
+
 STILL CONSIDERING...
