@@ -5,3 +5,5 @@ sparc_models/
 *.gif
 temp_*
 *.log
+log/
+*.pyc
