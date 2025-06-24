@@ -4,6 +4,41 @@ from typing import Dict
 from matplotlib.animation import FuncAnimation
 import logging
 
+logger = logging.getLogger(__name__)
+
+# New average frame plotting function (restored simple average plot)
+def show_avg_frame(traj: Dict[str, np.ndarray]):
+    """
+    Plot the average position of each EMA sensor over all frames.
+    """
+    keys = ["UL", "LL", "LI", "TT", "TB", "TD"]
+    colours = dict(UL="crimson", LL="gold", LI="grey",
+                   TT="limegreen", TB="orchid", TD="steelblue")
+
+    # compute mean positions
+    means = {k: traj[k].mean(axis=0) for k in keys}
+
+    # determine dynamic limits with padding
+    all_xy = np.vstack(list(means.values()))
+    pad = 0.5
+    xmin, xmax = all_xy[:,0].min() - pad, all_xy[:,0].max() + pad
+    ymin, ymax = all_xy[:,1].min() - pad, all_xy[:,1].max() + pad
+
+    fig, ax = plt.subplots(figsize=(4,4))
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymax, ymin)  # invert y-axis
+    for k, (x, y) in means.items():
+        ax.scatter(x, y, color=colours[k], s=40, zorder=3)
+        ax.text(x + 0.02, y + 0.02, f"{k}",
+                ha="left", va="bottom", fontsize=8)
+        logging.info(f"{k} mean position: ({x:.2f}, {y:.2f})")
+    ax.set_title("Average EMA sensor positions")
+    ax.set_aspect("equal")
+    ax.invert_yaxis()      # common EMA convention
+    ax.grid(True, linestyle="--", alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
 
 def show_ema_frame(traj: dict, frame: int):
     keys = ["UL", "LL", "LI", "TT", "TB", "TD"]
@@ -24,26 +59,6 @@ def show_ema_frame(traj: dict, frame: int):
     plt.tight_layout()
     plt.show()
 
-def show_avg_frame(traj: dict):
-    keys = ["UL", "LL", "LI", "TT", "TB", "TD"]
-    colours = dict(UL="crimson", LL="gold", LI="grey",
-                   TT="limegreen", TB="orchid", TD="steelblue")
-
-    plt.figure(figsize=(4,4))
-    plt.xlim(-0.5, 0.5)
-    plt.ylim(-0.5, 0.5)
-    for k in keys:
-        x, y = np.mean(traj[k], axis=0)
-        plt.scatter(x, y, color=colours[k], s=40, zorder=3)
-        plt.text(x+0.05, y+0.05, f"{k} ({x:.2f},{y:.2f})",
-                 ha="left", va="bottom", fontsize=8)
-
-    plt.title("Average EMA sensors position")
-    plt.gca().set_aspect("equal")
-    plt.gca().invert_yaxis()      # common EMA convention
-    plt.grid(True, linestyle="--", alpha=0.3)
-    plt.tight_layout()
-    plt.show()
 
 def live_view(traj, fps=25, save_gif=None):
     colours = dict(UL="crimson", LL="gold", LI="grey",

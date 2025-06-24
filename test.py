@@ -10,12 +10,12 @@ import logging
 from src.vocal_tract_animation import animate_vocal_tract, load_rig_csv
 from src.plot import show_ema_frame, live_view, show_avg_frame
 from src.init import process
+from src.logging.logging_setup import setup_logging
 import time
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S')
-
+setup_logging()
+logging.config.fileConfig('./src/logging/logging.conf', disable_existing_loggers=False)
+logger = logging.getLogger(__name__)
 
 # logging.info("Loading model...")
 # coder = load_model(
@@ -37,12 +37,13 @@ logging.basicConfig(level=logging.INFO,
 
 # logging.info("Encoding audio...")
 # code = coder.encode(audio)
+# np.save('code_sample2.npy', code, allow_pickle=True)
 # if code is None:
 #     logging.error("Failed to encode audio.")
 #     quit()
 # logging.info("Audio encoded successfully.")
 
-code = np.load('code_sample1.npy', allow_pickle=True).item()
+code = np.load('code_sample2.npy', allow_pickle=True).item()
 ema = code['ema']
 T = ema.shape[0]
 logging.info(f"Loaded EMA data with {T} frames.")
@@ -51,19 +52,19 @@ traj = process(ema)
 # # show certain frame
 # show_ema_frame(traj, 0)
 
-# # show average frame
-# show_avg_frame(traj)
+# show average frame
+show_avg_frame(traj)
 
 # # live ema view
 # live_view(traj, fps=10, save_gif="sample1.gif")
 
 # animate vocal tract
-rig = load_rig_csv('rigs/rig_points.csv')
-animate_vocal_tract(traj, 
-                    fps=25, 
-                    save_gif="sample-test.gif", 
-                    custom_rig=rig, 
-                    show_labels=True, 
-                    show_axes=True,
-                    rig_scale=100*0.5)
+# rig = load_rig_csv('rigs/rig_points.csv')
+# animate_vocal_tract(traj, 
+#                     fps=25, 
+#                     save_gif="sample-test.gif", 
+#                     custom_rig=rig, 
+#                     show_labels=True, 
+#                     show_axes=True,
+#                     rig_scale=100*0.5)
 
