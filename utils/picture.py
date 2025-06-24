@@ -12,7 +12,7 @@ def mouse_callback(event, x, y, flags, param):
         cv2.imshow('Image', img)
 
 try:
-    img = cv2.imread('../image/image.png')
+    img = cv2.imread('./image/image.png')
     if img is None:
         raise FileNotFoundError("Image not found or could not be loaded. Please check the file path.")
 except FileNotFoundError as e:

@@ -47,12 +47,6 @@ def load_rig_csv(csv_path: str) -> RigDict:
             rig[name.strip()] = np.array([float(x), float(y)])
     return rig
 
-# Helper to compute average lip distance
-# def _mean_lip_distance(traj: Dict[str, np.ndarray]) -> float:
-#     """Return the average UL–LL Euclidean distance (cm) across all frames."""
-#     ul, ll = traj["UL"], traj["LL"]
-#     return float(np.mean(np.linalg.norm(ll - ul, axis=1)))
-
 ###############################################################################
 # Coordinate normalisation
 ###############################################################################
@@ -90,8 +84,8 @@ def _get_point(name: str,
 
 def _catmull_rom(P: np.ndarray, n: int = 60) -> np.ndarray:
     """
-    Return n points on a Catmull‑Rom spline passing through the
-    control points P (k×2).  Endpoints are repeated for natural ends.
+    Return n points on a Catmull-Rom spline passing through the
+    control points P (kx2).  Endpoints are repeated for natural ends.
     """
     P = np.asarray(P)
     if P.shape[0] < 2:
@@ -116,10 +110,15 @@ def _catmull_rom(P: np.ndarray, n: int = 60) -> np.ndarray:
 def _tongue_surface(art: ArtDict, rig: RigDict) -> np.ndarray:
     """
     Draw Catmull‑Rom through:
-      1 – TD – TB – TT – 2 – 3 – 4 – 5 – 6 – LL
-    Numeric anchors (1‑6) must exist in `rig`.
+      1 - 2 - 3 - 4 - 5 - 6 - TD - TB - TT - 7 - 8 - 9 - 10 - 11 - LL - 12 - 13 - 14 - 15
+    Numeric anchors (1‑15) must exist in `rig`.
     """
-    order = ["1", "TD", "TB", "TT", "2", "3", "4", "5", "6", "LL"]
+    order = [
+        "1", "2", "3", "4", "5", "6",
+        "TD", "TB", "TT",
+        "7", "8", "9", "10", "11",
+        "LL", "12", "13", "14", "15"
+    ]
     pts = np.vstack([_get_point(n, art, rig) for n in order])
     return _catmull_rom(pts, n=80)
 
@@ -127,61 +126,63 @@ def _tongue_surface(art: ArtDict, rig: RigDict) -> np.ndarray:
 def _upper_jaw_surface(art: ArtDict, rig: RigDict) -> np.ndarray:
     """
     Smooth Catmull‑Rom through:
-      7 – UL – 8 – 9 – 10 – 11 – 12 – 13
+      16 – UL – 17 – 18 – 19 – 20 – 21 – 22
     """
-    order = ["7", "UL", "8", "9", "10", "11", "12", "13"]
+    order = [
+        "16", "UL", "17", "18", "19", "20", "21", "22"
+    ]
     pts = np.vstack([_get_point(n, art, rig) for n in order])
     return _catmull_rom(pts, n=80)
 
 
-def calibrate_outline(traj: Dict[str, np.ndarray],
-                      gap_y: float = 0.3,
-                      target_lip_dist: float = 1.6) -> np.ndarray:
-    """
-    Build a mid‑sagittal vocal‑tract outline that fits *this* speaker.
+# def calibrate_outline(traj: Dict[str, np.ndarray],
+#                       gap_y: float = 0.3,
+#                       target_lip_dist: float = 1.6) -> np.ndarray:
+#     """
+#     Build a mid‑sagittal vocal‑tract outline that fits *this* speaker.
 
-    * Averages UL, LL, LI, TD across all frames.
-    * Uses the same affine (LI origin, UL‑LL vertical) for consistency.
-    * Palate arch spans from UL to a point ~1.4 cm above TD.
-    * Pharynx + larynx trace follows behind TD.
-    * Returns an outline in the **raw coordinate space** so animation can
-      still apply the per‑speaker affine each frame.
+#     * Averages UL, LL, LI, TD across all frames.
+#     * Uses the same affine (LI origin, UL‑LL vertical) for consistency.
+#     * Palate arch spans from UL to a point ~1.4 cm above TD.
+#     * Pharynx + larynx trace follows behind TD.
+#     * Returns an outline in the **raw coordinate space** so animation can
+#       still apply the per‑speaker affine each frame.
 
-    """
-    # ── anchor means ───────────────────────────────────────────────
-    mean = {k: traj[k].mean(axis=0) for k in ("UL", "LL", "LI", "TD")}
-    R, t, s = _affine_from_frame(mean, target_lip_dist)
-    a = {k: _apply_affine(v, R, t, s) for k, v in mean.items()}
+#     """
+#     # ── anchor means ───────────────────────────────────────────────
+#     mean = {k: traj[k].mean(axis=0) for k in ("UL", "LL", "LI", "TD")}
+#     R, t, s = _affine_from_frame(mean, target_lip_dist)
+#     a = {k: _apply_affine(v, R, t, s) for k, v in mean.items()}
 
-    # ── palate arch (quadratic) ───────────────────────────────────
-    pal_front = a["UL"]
-    pal_back  = a["TD"] + np.array([-1.0, 1.4])        # 1 cm behind & 1.4 cm up
-    xs = np.linspace(pal_back[0], pal_front[0], 40)
-    ys = pal_back[1] + (pal_front[1] - pal_back[1]) * \
-         (1 - ((xs - pal_back[0]) / (pal_front[0]-pal_back[0]))**2)
-    palate = np.c_[xs, ys]
+#     # ── palate arch (quadratic) ───────────────────────────────────
+#     pal_front = a["UL"]
+#     pal_back  = a["TD"] + np.array([-1.0, 1.4])        # 1 cm behind & 1.4 cm up
+#     xs = np.linspace(pal_back[0], pal_front[0], 40)
+#     ys = pal_back[1] + (pal_front[1] - pal_back[1]) * \
+#          (1 - ((xs - pal_back[0]) / (pal_front[0]-pal_back[0]))**2)
+#     palate = np.c_[xs, ys]
 
-    # ── lip corners ───────────────────────────────────────────────
-    lip_left  = a["UL"] + np.array([-0.6, 0.0])
-    lip_right = a["UL"] + np.array([ 0.6, 0.0])
+#     # ── lip corners ───────────────────────────────────────────────
+#     lip_left  = a["UL"] + np.array([-0.6, 0.0])
+#     lip_right = a["UL"] + np.array([ 0.6, 0.0])
 
-    # ── pharynx / larynx polyline ─────────────────────────────────
-    pharynx = np.array([
-        a["TD"] + [-1.0,  1.0],
-        a["TD"] + [-1.0, -2.0],
-    ])
+#     # ── pharynx / larynx polyline ─────────────────────────────────
+#     pharynx = np.array([
+#         a["TD"] + [-1.0,  1.0],
+#         a["TD"] + [-1.0, -2.0],
+#     ])
 
-    outline_affine = np.vstack([
-        pharynx,
-        palate[::-1],
-        lip_left,
-        lip_right,
-        pharynx[0],
-    ])
+#     outline_affine = np.vstack([
+#         pharynx,
+#         palate[::-1],
+#         lip_left,
+#         lip_right,
+#         pharynx[0],
+#     ])
 
-    # ── map back to raw space so animation’s affine still applies ─
-    outline_raw = (R.T @ (outline_affine / s).T).T + t
-    return outline_raw
+#     # ── map back to raw space so animation’s affine still applies ─
+#     outline_raw = (R.T @ (outline_affine / s).T).T + t
+#     return outline_raw
 
 
 def _to_path(points: np.ndarray) -> Path:
@@ -227,8 +228,6 @@ def animate_vocal_tract(
     ax.set_aspect("equal")
 
     if show_axes:
-        # ax.set_xlabel("cm")
-        # ax.set_ylabel("cm")
         ax.grid(ls="--", alpha=0.3)
     else:
         ax.axis("off")
@@ -241,7 +240,10 @@ def animate_vocal_tract(
         for k, v in raw_rig.items():
             if k == "root":
                 continue
-            conv[k] = (v - origin) / rig_scale
+            # conv[k] = (v - origin) / rig_scale
+            conv[k] = np.zeros(2)
+            conv[k][0] = (v[0] - origin[0]) / rig_scale
+            conv[k][1] = -(v[1] - origin[1]) / rig_scale
         return conv
 
     custom_rig = _convert_rig(custom_rig or {})
@@ -253,9 +255,29 @@ def animate_vocal_tract(
     rig_scatters: Dict[str, plt.Line2D] = {}
 
     def _label(name: str, xy: np.ndarray):
-        """Create (once) or move a small text label and scatter marker."""
-        if not show_labels:
-            return
+        """
+        Place a small text label and coloured dot.
+
+        * LI is always labelled.
+        * Other points follow the `show_labels` flag.
+        """
+        always = name == "LI"
+
+        # ── ensure scatter exists & move it ────────────────────────
+        if name not in rig_scatters:
+            rig_scatters[name], = ax.plot(
+                [], [], marker="o", markersize=5,
+                color='yellow', linestyle="None", zorder=4
+            )
+        rig_scatters[name].set_data([xy[0]], [xy[1]])
+
+        # ── decide whether to draw / update the text ───────────────
+        if not show_labels and always:
+            return                          # LI scatter only, no text
+        if not show_labels and not always:
+            return                          # other points not shown
+
+        # create or move text
         if name not in text_artists:
             text_artists[name] = ax.text(
                 xy[0] + 0.1, xy[1] + 0.1, name,
@@ -263,13 +285,6 @@ def animate_vocal_tract(
             )
         else:
             text_artists[name].set_position((xy[0] + 0.1, xy[1] + 0.1))
-        if show_labels and name not in rig_scatters:
-            rig_scatters[name], = ax.plot(
-                [], [], marker="o", markersize=5,
-                color=next(_cmap_cycle), linestyle="None", zorder=4
-            )
-        if show_labels:
-            rig_scatters[name].set_data([xy[0]], [xy[1]])
 
     # Empty PathPatches for dynamic surfaces.
     tongue_patch = PathPatch(Path([[0, 0]]), fill=False, lw=3, color="tab:red")
@@ -278,9 +293,9 @@ def animate_vocal_tract(
     ax.add_patch(upper_patch)
 
     # Compute static palate surface once.
-    raw0 = {k: v[0] for k, v in traj.items()}
-    R0, t0, s0 = np.eye(2), np.zeros(2), 1.0
-    rig0 = custom_rig
+    # raw0 = {k: v[0] for k, v in traj.items()}
+    # R0, t0, s0 = np.eye(2), np.zeros(2), 1.0
+    # rig0 = custom_rig
     # --- animation driver -----------------------------------------------------
 
     def _update(frame: int):
@@ -292,8 +307,10 @@ def animate_vocal_tract(
 
         # move sensor labels each frame
         if show_labels:
-            for n, xy in zip(("UL", "LL", "LI", "TT", "TB", "TD"), sensor_xy):
+            for n, xy in zip(("UL","LL","LI","TT","TB","TD"), sensor_xy):
                 _label(n, xy)
+        else:
+            _label("LI", art["LI"])  # ensure LI label always updates
 
         rig = custom_rig
 
@@ -315,6 +332,8 @@ def animate_vocal_tract(
         if show_labels:
             for n, xy in zip(("UL","LL","LI","TT","TB","TD"), sensor_xy):
                 _label(n, xy)
+        else:
+            _label("LI", art["LI"])   # LI always
 
         rig_init = custom_rig
         if show_labels:
@@ -338,4 +357,4 @@ def animate_vocal_tract(
 
     logging.info(f"Animation created: {save_gif or save_mp4}")
 
-    plt.show()
+    # plt.show()

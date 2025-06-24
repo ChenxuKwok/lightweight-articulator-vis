@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 #     quit()
 # logging.info("Audio encoded successfully.")
 
-code = np.load('code_sample2.npy', allow_pickle=True).item()
+code = np.load('code_sample1.npy', allow_pickle=True).item()
 ema = code['ema']
 T = ema.shape[0]
 logging.info(f"Loaded EMA data with {T} frames.")
@@ -53,18 +53,20 @@ traj = process(ema)
 # show_ema_frame(traj, 0)
 
 # show average frame
-show_avg_frame(traj)
+# show_avg_frame(traj)
 
 # # live ema view
 # live_view(traj, fps=10, save_gif="sample1.gif")
 
 # animate vocal tract
-# rig = load_rig_csv('rigs/rig_points.csv')
-# animate_vocal_tract(traj, 
-#                     fps=25, 
-#                     save_gif="sample-test.gif", 
-#                     custom_rig=rig, 
-#                     show_labels=True, 
-#                     show_axes=True,
-#                     rig_scale=100*0.5)
+rig = load_rig_csv('rigs/rig_points.csv')
+animate_vocal_tract(traj, 
+                    fps=25, 
+                    save_gif="demos/sample-1-temp.gif", 
+                    custom_rig=rig, 
+                    show_labels=False, 
+                    show_axes=False,
+                    xlim=(-5, 40),
+                    ylim=(-30, 20),
+                    rig_scale=15)
 
