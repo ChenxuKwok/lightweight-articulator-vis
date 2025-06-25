@@ -212,13 +212,46 @@ def animate_vocal_tract(
     custom_rig: Optional[RigDict] = None,
     show_labels: bool = False,
     show_axes: bool = False,
+    label_sensors: bool = False,        # display names for UL LL LI TT TB TD
     xlim: tuple[float, float] = (-3.0, 3.0),
     ylim: tuple[float, float] = (-3.0, 3.0),
-    rig_scale: float = 100.0,   # divide raw rig coords by this value
+    rig_scale: float = 100.0   # divide raw rig coords by this value
 ) -> None:
+    """
+    Animate a vocal tract trajectory.
+
+    Parameters
+    ----------
+    traj : Dict[str, np.ndarray]
+        Dictionary of trajectories for sensors and rig points.
+    fps : int
+        Frames per second for animation.
+    save_gif : Optional[str]
+        Path to save animation as GIF.
+    save_mp4 : Optional[str]
+        Path to save animation as MP4.
+    custom_outline : Optional[np.ndarray]
+        Custom outline points.
+    custom_rig : Optional[RigDict]
+        Custom rig dictionary.
+    show_labels : bool
+        Show rig-point labels.
+    show_axes : bool
+        Show axes grid.
+    label_sensors : bool
+        If True, always show text labels for UL, LL, LI, TT, TB, TD.
+        Independent of `show_labels`, which controls rig‑point labels.
+    xlim : tuple[float, float]
+        X-axis limits.
+    ylim : tuple[float, float]
+        Y-axis limits.
+    rig_scale : float
+        Scale factor for rig coordinates.
+    """
     required = {"UL", "LL", "LI", "TT", "TB", "TD"}
     if not required.issubset(traj):
         raise ValueError(f"traj missing keys: {required - traj.keys()}")
+
 
     T = next(iter(traj.values())).shape[0]
 
@@ -306,11 +339,11 @@ def animate_vocal_tract(
         sensor_scatter.set_offsets(sensor_xy)
 
         # move sensor labels each frame
-        if show_labels:
+        if label_sensors or show_labels:
             for n, xy in zip(("UL","LL","LI","TT","TB","TD"), sensor_xy):
                 _label(n, xy)
         else:
-            _label("LI", art["LI"])  # ensure LI label always updates
+            _label("LI", art["LI"])   # LI scatter only
 
         rig = custom_rig
 
@@ -329,11 +362,11 @@ def animate_vocal_tract(
         art = raw
         sensor_xy = np.vstack([art[k] for k in ("UL","LL","LI","TT","TB","TD")])
         sensor_scatter.set_offsets(sensor_xy)
-        if show_labels:
+        if label_sensors or show_labels:
             for n, xy in zip(("UL","LL","LI","TT","TB","TD"), sensor_xy):
                 _label(n, xy)
         else:
-            _label("LI", art["LI"])   # LI always
+            _label("LI", art["LI"])   # LI scatter only
 
         rig_init = custom_rig
         if show_labels:
